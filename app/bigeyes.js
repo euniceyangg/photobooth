@@ -158,3 +158,107 @@ export function stepApples(state, canvas, mouths, now) {
     ctx.restore();
   }
 }
+
+// ---------- clown makeup ----------
+const OUTER_LIPS = [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146];
+const WIG = ["#ff4d6d", "#ffb020", "#3ec6ff", "#7be04d", "#d65cff"];
+
+// Paints a rainbow wig, eye paint, red nose, cheeks and a big smile on every face.
+// Draws onto a canvas that already holds the mirrored video.
+export function drawClown(canvas, faces) {
+  const W = canvas.width;
+  const H = canvas.height;
+  if (!W || !H) return;
+  const ctx = canvas.getContext("2d");
+  for (const lm of faces || []) {
+    const P = (i) => ({ x: (1 - lm[i].x) * W, y: lm[i].y * H });
+    const top = P(10);
+    const chin = P(152);
+    const left = P(454); // mirrored, so 454 is on the left of the screen
+    const right = P(234);
+    const faceW = Math.hypot(right.x - left.x, right.y - left.y);
+    const faceH = Math.hypot(chin.x - top.x, chin.y - top.y);
+    const cx = (left.x + right.x) / 2;
+    const cy = (top.y + chin.y) / 2;
+
+    // wig: a ring of puffy circles over the top of the head
+    const n = 15;
+    for (let k = 0; k < n; k++) {
+      const a = Math.PI * (1.02 + (k / (n - 1)) * 0.96);
+      const rx = faceW * 0.66;
+      const ry = faceH * 0.42;
+      const x = cx + Math.cos(a) * rx;
+      const y = top.y + faceH * 0.28 + Math.sin(a) * ry;
+      ctx.fillStyle = WIG[k % WIG.length];
+      ctx.beginPath();
+      ctx.arc(x, y, faceW * 0.19, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,.25)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // white eye paint with a colored diamond above each eye
+    for (const ids of [LEFT, RIGHT]) {
+      const pts = ids.map(P);
+      const ex = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+      const ey = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+      const ew = faceW * 0.17;
+      ctx.fillStyle = "rgba(255,255,255,.88)";
+      ctx.beginPath();
+      ctx.ellipse(ex, ey, ew, ew * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = ids === LEFT ? "#2f6bff" : "#a43cff";
+      const dy = ey - ew * 0.95;
+      ctx.beginPath();
+      ctx.moveTo(ex, dy - ew * 0.5);
+      ctx.lineTo(ex + ew * 0.35, dy);
+      ctx.lineTo(ex, dy + ew * 0.5);
+      ctx.lineTo(ex - ew * 0.35, dy);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // rosy cheeks
+    for (const i of [50, 280]) {
+      const c = P(i);
+      const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, faceW * 0.14);
+      g.addColorStop(0, "rgba(255,60,80,.55)");
+      g.addColorStop(1, "rgba(255,60,80,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, faceW * 0.14, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // big red smile that curls up past the mouth corners
+    const lips = OUTER_LIPS.map(P);
+    ctx.strokeStyle = "#e11d2e";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = faceW * 0.06;
+    ctx.beginPath();
+    lips.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.stroke();
+    for (const c of [P(61), P(291)]) {
+      const dir = c.x < cx ? -1 : 1;
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.quadraticCurveTo(c.x + dir * faceW * 0.06, c.y - faceW * 0.02, c.x + dir * faceW * 0.08, c.y - faceW * 0.1);
+      ctx.stroke();
+    }
+
+    // red nose with a shine
+    const nose = P(1);
+    const nr = faceW * 0.12;
+    const ng = ctx.createRadialGradient(nose.x - nr * 0.3, nose.y - nr * 0.3, nr * 0.1, nose.x, nose.y, nr);
+    ng.addColorStop(0, "#ff7a7a");
+    ng.addColorStop(0.45, "#e11d2e");
+    ng.addColorStop(1, "#8f0f1a");
+    ctx.fillStyle = ng;
+    ctx.beginPath();
+    ctx.arc(nose.x, nose.y, nr, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}

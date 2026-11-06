@@ -83,6 +83,14 @@ export const FILTERS = [
     hint: "Open your mouth! 🍎",
   },
   {
+    id: "clown",
+    name: "Clown",
+    icon: "🤡",
+    // Rainbow wig, eye paint, red nose and a big smile placed with face detection.
+    css: "none",
+    clown: true,
+  },
+  {
     id: "bigeyes",
     name: "Big Eyes",
     icon: "👀",
