@@ -52,10 +52,18 @@ export const FILTERS = [
     id: "kusama",
     name: "Dot Infinity",
     icon: "🔴",
-    // Pumpkin-yellow and red color blocks covered in polka dots, in the spirit
-    // of Yayoi Kusama's dotted paintings (the pattern is original, not a copy).
-    css: "url(#posterize) sepia(1) saturate(3.2) hue-rotate(-12deg) contrast(1.15) brightness(1.05)",
-    sat: 1, contrast: 1.1, palette: true, dots: true,
+    // Your picture rebuilt out of polka dots on a red field, in the spirit of
+    // Yayoi Kusama's dotted paintings (an original pattern, not a copy).
+    css: "none",
+    mosaic: true,
+  },
+  {
+    id: "thermal",
+    name: "Heat Cam",
+    icon: "🔥",
+    // Heat-vision color map with scanlines, a crosshair and a temperature readout.
+    css: "none",
+    thermal: true,
   },
   {
     id: "bigeyes",
@@ -180,25 +188,8 @@ export function applyFilter(canvas, f) {
   }
   ctx.putImageData(img, 0, 0);
 
-  if (f.dots) {
-    // A loose grid of dots in different sizes. Dark dots on light areas,
-    // cream dots on dark areas, so they always show.
-    const step = Math.round(w / 14);
-    for (let y = -step; y < h + step; y += step) {
-      for (let x = -step; x < w + step; x += step) {
-        const cx = x + ((y / step) % 2 ? step / 2 : 0) + (Math.random() - 0.5) * step * 0.18;
-        const cy = y + (Math.random() - 0.5) * step * 0.18;
-        const px = Math.min(w - 1, Math.max(0, Math.round(cx)));
-        const py = Math.min(h - 1, Math.max(0, Math.round(cy)));
-        const i = (py * w + px) * 4;
-        const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
-        ctx.fillStyle = lum > 120 ? "rgba(24,20,20,.92)" : "rgba(255,241,208,.92)";
-        ctx.beginPath();
-        ctx.arc(cx, cy, step * (0.12 + Math.random() * 0.2), 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
+  if (f.mosaic) drawMosaic(ctx, d, w, h);
+  if (f.thermal) drawThermal(ctx, d, w, h);
   if (f.vignette) {
     const grad = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.hypot(w, h) / 2);
     grad.addColorStop(0, "rgba(0,0,0,0)");
@@ -229,3 +220,105 @@ export function applyFilter(canvas, f) {
 }
 
 export { stampText };
+
+
+// Rebuilds the picture out of dots. `d` is RGBA pixel data of size w x h.
+// Each dot takes its color and size from the part of the picture it sits on.
+export function drawMosaic(ctx, d, w, h) {
+  ctx.fillStyle = "#c8281e"; // red field
+  ctx.fillRect(0, 0, w, h);
+  const step = w / 44;
+  const rowH = step * 0.866;
+  const at = (x, y) => {
+    const px = Math.min(w - 1, Math.max(0, Math.round(x)));
+    const py = Math.min(h - 1, Math.max(0, Math.round(y)));
+    return (py * w + px) * 4;
+  };
+  for (let row = 0, y = 0; y < h + step; row++, y += rowH) {
+    for (let x = row % 2 ? step / 2 : 0; x < w + step; x += step) {
+      // average a small patch under the dot
+      let lum = 0;
+      const o = step * 0.25;
+      for (const [dx, dy] of [[0, 0], [-o, 0], [o, 0], [0, -o], [0, o]]) {
+        const i = at(x + dx, y + dy);
+        lum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      }
+      lum = (lum / 5 - 128) * 1.25 + 128; // a little extra contrast
+      const color = lum > 185 ? "#fff1d0" : lum > 130 ? "#f8be1e" : lum > 80 ? "#ef7d24" : "#181414";
+      const t = Math.min(1, Math.max(0, lum / 255));
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, step * (0.3 + 0.2 * t), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+
+// Heat-vision look: brightness becomes a black > purple > red > orange > yellow > white scale.
+const HEAT = [
+  [0, [11, 2, 32]],
+  [0.25, [75, 10, 140]],
+  [0.45, [192, 28, 110]],
+  [0.6, [240, 69, 30]],
+  [0.78, [255, 163, 25]],
+  [0.9, [255, 233, 74]],
+  [1, [255, 255, 255]],
+];
+const LUT = (() => {
+  const out = [];
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let k = 1;
+    while (k < HEAT.length - 1 && HEAT[k][0] < t) k++;
+    const [t0, c0] = HEAT[k - 1];
+    const [t1, c1] = HEAT[k];
+    const u = Math.min(1, Math.max(0, (t - t0) / (t1 - t0)));
+    out.push(c0.map((v, j) => Math.round(v + (c1[j] - v) * u)));
+  }
+  return out;
+})();
+
+export function drawThermal(ctx, d, w, h) {
+  const img = ctx.createImageData(w, h);
+  const o = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    l = Math.min(255, Math.max(0, (l - 128) * 1.4 + 128));
+    const c = LUT[Math.round(l)];
+    o[i] = c[0];
+    o[i + 1] = c[1];
+    o[i + 2] = c[2];
+    o[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  // scanlines
+  ctx.fillStyle = "rgba(0,0,0,.14)";
+  const gap = Math.max(3, Math.round(h / 90));
+  for (let y = 0; y < h; y += gap * 2) ctx.fillRect(0, y, w, gap);
+  // crosshair brackets
+  const cx = w / 2;
+  const cy = h / 2;
+  const r = h * 0.14;
+  const a = r * 0.35;
+  ctx.strokeStyle = "rgba(255,255,255,.9)";
+  ctx.lineWidth = Math.max(2, w / 300);
+  ctx.beginPath();
+  for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    ctx.moveTo(cx + sx * r, cy + sy * (r - a));
+    ctx.lineTo(cx + sx * r, cy + sy * r);
+    ctx.lineTo(cx + sx * (r - a), cy + sy * r);
+  }
+  ctx.moveTo(cx - a / 2, cy);
+  ctx.lineTo(cx + a / 2, cy);
+  ctx.moveTo(cx, cy - a / 2);
+  ctx.lineTo(cx, cy + a / 2);
+  ctx.stroke();
+  // readout
+  ctx.fillStyle = "rgba(255,255,255,.95)";
+  ctx.font = `700 ${Math.round(w * 0.045)}px ui-monospace, Menlo, monospace`;
+  ctx.textAlign = "left";
+  ctx.fillText("HEAT CAM", w * 0.04, h * 0.09);
+  ctx.textAlign = "right";
+  ctx.fillText("36.6°C", w * 0.96, h * 0.95);
+}

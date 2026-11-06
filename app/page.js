@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FILTERS, getFilter, applyFilter, stampText } from "./filters";
+import { FILTERS, getFilter, applyFilter, drawMosaic, drawThermal, stampText } from "./filters";
 import { loadLandmarker, eyesFromLandmarks, drawBigEyes } from "./bigeyes";
 
 const SHOTS = 4;
@@ -64,6 +64,7 @@ const toBlob = (canvas) => new Promise((res) => canvas.toBlob(res, "image/png"))
 export default function Home() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const mosaicRef = useRef(null);
   const eyesCanvasRef = useRef(null);
   const eyesRef = useRef([]);
   const [eyesStatus, setEyesStatus] = useState("idle"); // idle | loading | ready | error
@@ -87,6 +88,49 @@ export default function Home() {
       }
     );
   }, [filter.bigEyes, eyesStatus]);
+
+  // Draw the live dot picture while Dot Infinity is on.
+  useEffect(() => {
+    if (!(filter.mosaic || filter.thermal) || (phase !== "ready" && phase !== "shooting")) return;
+    let raf;
+    let stopped = false;
+    const small = document.createElement("canvas");
+    small.width = 320;
+    small.height = 240;
+    const sctx = small.getContext("2d", { willReadFrequently: true });
+    const tick = () => {
+      if (stopped) return;
+      const video = videoRef.current;
+      const canvas = mosaicRef.current;
+      if (video && canvas && video.readyState >= 2 && video.videoWidth) {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        let sw = vw;
+        let sh = (vw * 3) / 4;
+        if (sh > vh) {
+          sh = vh;
+          sw = (vh * 4) / 3;
+        }
+        sctx.save();
+        sctx.translate(320, 0);
+        sctx.scale(-1, 1);
+        sctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, 320, 240);
+        sctx.restore();
+        const data = sctx.getImageData(0, 0, 320, 240).data;
+        if (canvas.width !== 320) {
+          canvas.width = 320;
+          canvas.height = 240;
+        }
+        (filter.thermal ? drawThermal : drawMosaic)(canvas.getContext("2d"), data, 320, 240);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [filter.mosaic, filter.thermal, phase]);
 
   // Draw the live Big Eyes picture while that filter is on.
   useEffect(() => {
@@ -233,7 +277,7 @@ export default function Home() {
             <video ref={videoRef} className="video" style={{ filter: filter.css }} playsInline muted autoPlay />
             {filter.bigEyes && eyesStatus === "ready" && <canvas ref={eyesCanvasRef} className="video eyes" />}
             {filter.bigEyes && eyesStatus === "loading" && <div className="loadnote">Loading eye magic…</div>}
-            {filter.dots && <div className="ov dots" />}
+            {(filter.mosaic || filter.thermal) && <canvas ref={mosaicRef} className="video eyes" />}
             {filter.vignette && <div className="ov vig" style={{ opacity: Math.min(1, filter.vignette * 1.6) }} />}
             {filter.grain && <div className="ov grain" style={{ opacity: Math.min(0.5, filter.grain * 4) }} />}
             {filter.leak && <div className="ov leak" />}
