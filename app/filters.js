@@ -66,6 +66,14 @@ export const FILTERS = [
     thermal: true,
   },
   {
+    id: "funhouse",
+    name: "Funhouse",
+    icon: "🫠",
+    // A carnival-mirror warp: wobbly waves and a giant bulging middle.
+    css: "none",
+    warp: true,
+  },
+  {
     id: "bigeyes",
     name: "Big Eyes",
     icon: "👀",
@@ -190,6 +198,7 @@ export function applyFilter(canvas, f) {
 
   if (f.mosaic) drawMosaic(ctx, d, w, h);
   if (f.thermal) drawThermal(ctx, d, w, h);
+  if (f.warp) drawWarp(ctx, d, w, h, Math.random() * 6.28);
   if (f.vignette) {
     const grad = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.hypot(w, h) / 2);
     grad.addColorStop(0, "rgba(0,0,0,0)");
@@ -321,4 +330,46 @@ export function drawThermal(ctx, d, w, h) {
   ctx.fillText("HEAT CAM", w * 0.04, h * 0.09);
   ctx.textAlign = "right";
   ctx.fillText("36.6°C", w * 0.96, h * 0.95);
+}
+
+
+// Funhouse mirror: wavy ripples plus a bulge in the middle. `t` moves the waves.
+export function drawWarp(ctx, d, w, h, t) {
+  const img = ctx.createImageData(w, h);
+  const o = img.data;
+  const R = 1.15;
+  for (let y = 0; y < h; y++) {
+    const ny = (y / h) * 2 - 1;
+    for (let x = 0; x < w; x++) {
+      const nx = (x / w) * 2 - 1;
+      let dx = nx + 0.06 * Math.sin(ny * 7 + t * 2.1);
+      let dy = ny + 0.05 * Math.sin(nx * 6 + t * 1.7);
+      const vx = dx;
+      const vy = dy + 0.1;
+      const r = Math.hypot(vx, vy);
+      if (r < R) {
+        const s = r / R;
+        const k = 0.4 + 0.6 * s * s; // small near the middle = strong magnify
+        dx = vx * k;
+        dy = vy * k - 0.1;
+      }
+      const sx = Math.min(w - 1.001, Math.max(0, ((dx + 1) / 2) * w));
+      const sy = Math.min(h - 1.001, Math.max(0, ((dy + 1) / 2) * h));
+      const x0 = sx | 0;
+      const y0 = sy | 0;
+      const fx = sx - x0;
+      const fy = sy - y0;
+      const i00 = (y0 * w + x0) * 4;
+      const i10 = i00 + 4;
+      const i01 = i00 + w * 4;
+      const i11 = i01 + 4;
+      const j = (y * w + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        o[j + c] =
+          d[i00 + c] * (1 - fx) * (1 - fy) + d[i10 + c] * fx * (1 - fy) + d[i01 + c] * (1 - fx) * fy + d[i11 + c] * fx * fy;
+      }
+      o[j + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 }

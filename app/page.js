@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FILTERS, getFilter, applyFilter, drawMosaic, drawThermal, stampText } from "./filters";
+import { FILTERS, getFilter, applyFilter, drawMosaic, drawThermal, drawWarp, stampText } from "./filters";
 import { loadLandmarker, eyesFromLandmarks, drawBigEyes } from "./bigeyes";
 
 const SHOTS = 4;
@@ -91,7 +91,7 @@ export default function Home() {
 
   // Draw the live dot picture while Dot Infinity is on.
   useEffect(() => {
-    if (!(filter.mosaic || filter.thermal) || (phase !== "ready" && phase !== "shooting")) return;
+    if (!(filter.mosaic || filter.thermal || filter.warp) || (phase !== "ready" && phase !== "shooting")) return;
     let raf;
     let stopped = false;
     const small = document.createElement("canvas");
@@ -121,7 +121,9 @@ export default function Home() {
           canvas.width = 320;
           canvas.height = 240;
         }
-        (filter.thermal ? drawThermal : drawMosaic)(canvas.getContext("2d"), data, 320, 240);
+        const g = canvas.getContext("2d");
+        if (filter.warp) drawWarp(g, data, 320, 240, performance.now() / 1000);
+        else (filter.thermal ? drawThermal : drawMosaic)(g, data, 320, 240);
       }
       raf = requestAnimationFrame(tick);
     };
@@ -130,7 +132,7 @@ export default function Home() {
       stopped = true;
       cancelAnimationFrame(raf);
     };
-  }, [filter.mosaic, filter.thermal, phase]);
+  }, [filter.mosaic, filter.thermal, filter.warp, phase]);
 
   // Draw the live Big Eyes picture while that filter is on.
   useEffect(() => {
@@ -277,7 +279,7 @@ export default function Home() {
             <video ref={videoRef} className="video" style={{ filter: filter.css }} playsInline muted autoPlay />
             {filter.bigEyes && eyesStatus === "ready" && <canvas ref={eyesCanvasRef} className="video eyes" />}
             {filter.bigEyes && eyesStatus === "loading" && <div className="loadnote">Loading eye magic…</div>}
-            {(filter.mosaic || filter.thermal) && <canvas ref={mosaicRef} className="video eyes" />}
+            {(filter.mosaic || filter.thermal || filter.warp) && <canvas ref={mosaicRef} className="video eyes" />}
             {filter.vignette && <div className="ov vig" style={{ opacity: Math.min(1, filter.vignette * 1.6) }} />}
             {filter.grain && <div className="ov grain" style={{ opacity: Math.min(0.5, filter.grain * 4) }} />}
             {filter.leak && <div className="ov leak" />}
