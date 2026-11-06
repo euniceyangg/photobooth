@@ -39,6 +39,23 @@ export const FILTERS = [
     css: "saturate(1.4) contrast(1.2) brightness(1.1) sepia(.12)",
     sat: 1.4, contrast: 1.2, bright: 1.08, sepia: 0.1, tint: [1.04, 0.98, 0.92], lift: 8, grain: 0.09, vignette: 0.3, leak: true, stamp: true,
   },
+  {
+    id: "cutout",
+    name: "Paper Cutout",
+    icon: "✂️",
+    // Flat colors with thick black outlines, like a cardboard cut-out cartoon.
+    // The live preview shows the flat colors; outlines are added to the saved photo.
+    css: "url(#posterize) saturate(1.5) contrast(1.15) brightness(1.05)",
+    sat: 1.5, contrast: 1.15, bright: 1.05, posterize: 4, outline: 110,
+  },
+  {
+    id: "bigeyes",
+    name: "Big Eyes",
+    icon: "👀",
+    // Face detection finds your eyes and blows them up (see bigeyes.js).
+    css: "none",
+    bigEyes: true,
+  },
 ];
 
 export const getFilter = (id) => FILTERS.find((f) => f.id === id) || FILTERS[0];
@@ -93,9 +110,50 @@ export function applyFilter(canvas, f) {
       g += n;
       b += n;
     }
+    if (f.posterize) {
+      const steps = f.posterize - 1;
+      r = Math.round(clamp(r) / 255 * steps) / steps * 255;
+      g = Math.round(clamp(g) / 255 * steps) / steps * 255;
+      b = Math.round(clamp(b) / 255 * steps) / steps * 255;
+    }
     d[i] = clamp(r);
     d[i + 1] = clamp(g);
     d[i + 2] = clamp(b);
+  }
+
+  if (f.outline) {
+    // Find edges between flat color areas and paint them as thick dark lines.
+    const lum = new Float32Array(w * h);
+    for (let p = 0, i = 0; p < lum.length; p++, i += 4) lum[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    const edge = new Uint8Array(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const p = y * w + x;
+        const gx = lum[p - w + 1] + 2 * lum[p + 1] + lum[p + w + 1] - lum[p - w - 1] - 2 * lum[p - 1] - lum[p + w - 1];
+        const gy = lum[p + w - 1] + 2 * lum[p + w] + lum[p + w + 1] - lum[p - w - 1] - 2 * lum[p - w] - lum[p - w + 1];
+        if (Math.abs(gx) + Math.abs(gy) > f.outline) edge[p] = 1;
+      }
+    }
+    const t = 2; // line thickness
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let hit = false;
+        for (let dy = 0; dy <= t && !hit; dy++) {
+          for (let dx = 0; dx <= t; dx++) {
+            if (y + dy < h && x + dx < w && edge[(y + dy) * w + x + dx]) {
+              hit = true;
+              break;
+            }
+          }
+        }
+        if (hit) {
+          const i = (y * w + x) * 4;
+          d[i] = 25;
+          d[i + 1] = 20;
+          d[i + 2] = 18;
+        }
+      }
+    }
   }
   ctx.putImageData(img, 0, 0);
 

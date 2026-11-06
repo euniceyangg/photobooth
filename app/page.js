@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FILTERS, getFilter, applyFilter, stampText } from "./filters";
+import { loadLandmarker, eyesFromLandmarks, drawBigEyes } from "./bigeyes";
 
 const SHOTS = 4;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -13,9 +14,12 @@ const BORDER = 48;
 const GAP = 32;
 const FOOTER = 120;
 
-function grabFrame(video, filter) {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
+function grabFrame(video, filter, eyesCanvas) {
+  // For Big Eyes the picture is already mirrored and processed on eyesCanvas.
+  const processed = filter.bigEyes && eyesCanvas && eyesCanvas.width > 0;
+  const src = processed ? eyesCanvas : video;
+  const vw = processed ? eyesCanvas.width : video.videoWidth;
+  const vh = processed ? eyesCanvas.height : video.videoHeight;
   const target = CELL_W / CELL_H;
   let sw = vw;
   let sh = vw / target;
@@ -27,9 +31,11 @@ function grabFrame(video, filter) {
   c.width = CELL_W;
   c.height = CELL_H;
   const ctx = c.getContext("2d");
-  ctx.translate(CELL_W, 0);
-  ctx.scale(-1, 1); // mirror to match the preview
-  ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, CELL_W, CELL_H);
+  if (!processed) {
+    ctx.translate(CELL_W, 0);
+    ctx.scale(-1, 1); // mirror to match the preview
+  }
+  ctx.drawImage(src, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, CELL_W, CELL_H);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   applyFilter(c, filter);
   return c;
@@ -58,6 +64,9 @@ const toBlob = (canvas) => new Promise((res) => canvas.toBlob(res, "image/png"))
 export default function Home() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const eyesCanvasRef = useRef(null);
+  const eyesRef = useRef([]);
+  const [eyesStatus, setEyesStatus] = useState("idle"); // idle | loading | ready | error
   const [phase, setPhase] = useState("loading"); // loading | ready | shooting | result | denied | unsupported
   const [count, setCount] = useState(null);
   const [taken, setTaken] = useState(0);
@@ -65,6 +74,49 @@ export default function Home() {
   const [strip, setStrip] = useState(null); // { url, blob }
   const [filterId, setFilterId] = useState("none");
   const filter = getFilter(filterId);
+
+  // Big Eyes: load the face finder the first time that filter is picked.
+  useEffect(() => {
+    if (!filter.bigEyes || eyesStatus !== "idle") return;
+    setEyesStatus("loading");
+    loadLandmarker().then(
+      () => setEyesStatus("ready"),
+      () => {
+        setEyesStatus("error");
+        setFilterId("none");
+      }
+    );
+  }, [filter.bigEyes, eyesStatus]);
+
+  // Draw the live Big Eyes picture while that filter is on.
+  useEffect(() => {
+    if (!filter.bigEyes || eyesStatus !== "ready" || (phase !== "ready" && phase !== "shooting")) return;
+    let raf;
+    let last = -1;
+    let stopped = false;
+    const tick = async () => {
+      if (stopped) return;
+      const video = videoRef.current;
+      const canvas = eyesCanvasRef.current;
+      if (video && canvas && video.readyState >= 2 && video.videoWidth) {
+        if (video.currentTime !== last) {
+          last = video.currentTime;
+          try {
+            const lm = await loadLandmarker();
+            const res = lm.detectForVideo(video, performance.now());
+            eyesRef.current = eyesFromLandmarks(res.faceLandmarks);
+          } catch {}
+        }
+        drawBigEyes(canvas, video, eyesRef.current);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [filter.bigEyes, eyesStatus, phase]);
 
   const startCamera = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -122,7 +174,7 @@ export default function Home() {
     for (let i = 0; i < SHOTS; i++) {
       setCount(null);
       setFlashKey((k) => k + 1);
-      frames.push(grabFrame(video, filter));
+      frames.push(grabFrame(video, filter, eyesCanvasRef.current));
       setTaken(i + 1);
       if (i < SHOTS - 1) {
         await wait(1200);
@@ -166,10 +218,21 @@ export default function Home() {
 
   return (
     <main className="app">
+      <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+        <filter id="posterize" colorInterpolationFilters="sRGB">
+          <feComponentTransfer>
+            <feFuncR type="discrete" tableValues="0 .33 .67 1" />
+            <feFuncG type="discrete" tableValues="0 .33 .67 1" />
+            <feFuncB type="discrete" tableValues="0 .33 .67 1" />
+          </feComponentTransfer>
+        </filter>
+      </svg>
       {(phase === "ready" || phase === "shooting" || phase === "loading") && (
         <>
           <div className="stage">
             <video ref={videoRef} className="video" style={{ filter: filter.css }} playsInline muted autoPlay />
+            {filter.bigEyes && eyesStatus === "ready" && <canvas ref={eyesCanvasRef} className="video eyes" />}
+            {filter.bigEyes && eyesStatus === "loading" && <div className="loadnote">Loading eye magic…</div>}
             {filter.vignette && <div className="ov vig" style={{ opacity: Math.min(1, filter.vignette * 1.6) }} />}
             {filter.grain && <div className="ov grain" style={{ opacity: Math.min(0.5, filter.grain * 4) }} />}
             {filter.leak && <div className="ov leak" />}

@@ -225,3 +225,6 @@ html, body {
 .chip.on { background: #fff; color: #111; border-color: #fff; }
 .chip:disabled { opacity: .5; }
 .bar { padding-top: 12px; }
+
+.video.eyes { transform: none; z-index: 1; }
+.loadnote { position: absolute; left: 0; right: 0; top: 60px; text-align: center; z-index: 3; font-weight: 700; text-shadow: 0 2px 10px rgba(0,0,0,.6); }
