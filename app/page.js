@@ -1,69 +1,223 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const SHOTS = 4;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Cell size and spacing of the photo strip, in pixels.
+const CELL_W = 800;
+const CELL_H = 600;
+const BORDER = 48;
+const GAP = 32;
+const FOOTER = 120;
+
+function grabFrame(video) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const target = CELL_W / CELL_H;
+  let sw = vw;
+  let sh = vw / target;
+  if (sh > vh) {
+    sh = vh;
+    sw = vh * target;
+  }
+  const c = document.createElement("canvas");
+  c.width = CELL_W;
+  c.height = CELL_H;
+  const ctx = c.getContext("2d");
+  ctx.translate(CELL_W, 0);
+  ctx.scale(-1, 1); // mirror to match the preview
+  ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, CELL_W, CELL_H);
+  return c;
+}
+
+function buildStrip(frames) {
+  const w = CELL_W + BORDER * 2;
+  const h = BORDER + frames.length * CELL_H + (frames.length - 1) * GAP + FOOTER;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, w, h);
+  frames.forEach((f, i) => ctx.drawImage(f, BORDER, BORDER + i * (CELL_H + GAP)));
+  ctx.fillStyle = "#111";
+  ctx.textAlign = "center";
+  ctx.font = "600 40px ui-rounded, -apple-system, system-ui, sans-serif";
+  const date = new Date().toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  ctx.fillText(date, w / 2, h - FOOTER / 2 + 10);
+  return c;
+}
+
+const toBlob = (canvas) => new Promise((res) => canvas.toBlob(res, "image/png"));
 
 export default function Home() {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [phase, setPhase] = useState("loading"); // loading | ready | shooting | result | denied | unsupported
+  const [count, setCount] = useState(null);
+  const [taken, setTaken] = useState(0);
+  const [flashKey, setFlashKey] = useState(0);
+  const [strip, setStrip] = useState(null); // { url, blob }
+
+  const startCamera = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setPhase("unsupported");
+      return;
+    }
+    setPhase("loading");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setPhase("ready");
+    } catch (err) {
+      setPhase(err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "denied" : "unsupported");
+    }
+  }, []);
+
+  // Attach the stream whenever the camera view is on screen.
+  useEffect(() => {
+    const v = videoRef.current;
+    if ((phase === "ready" || phase === "shooting") && v && streamRef.current && v.srcObject !== streamRef.current) {
+      v.srcObject = streamRef.current;
+      v.play().catch(() => {});
+    }
+  }, [phase]);
+
+  useEffect(() => {
+    startCamera();
+    return () => streamRef.current?.getTracks().forEach((t) => t.stop());
+  }, [startCamera]);
+
+  // Phones stop the camera when you switch apps; restart when you come back.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const live = streamRef.current?.getTracks().some((t) => t.readyState === "live");
+      if (!live && (phase === "ready" || phase === "loading")) startCamera();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [phase, startCamera]);
+
+  const shoot = async () => {
+    const video = videoRef.current;
+    if (!video || phase !== "ready") return;
+    setPhase("shooting");
+    setTaken(0);
+    const frames = [];
+    for (let n = 3; n >= 1; n--) {
+      setCount(n);
+      await wait(1000);
+    }
+    for (let i = 0; i < SHOTS; i++) {
+      setCount(null);
+      setFlashKey((k) => k + 1);
+      frames.push(grabFrame(video));
+      setTaken(i + 1);
+      if (i < SHOTS - 1) {
+        await wait(1200);
+      }
+    }
+    const blob = await toBlob(buildStrip(frames));
+    setStrip({ blob, url: URL.createObjectURL(blob) });
+    await wait(400);
+    setPhase("result");
+  };
+
+  const retake = () => {
+    if (strip) URL.revokeObjectURL(strip.url);
+    setStrip(null);
+    setTaken(0);
+    setCount(null);
+    const live = streamRef.current?.getTracks().some((t) => t.readyState === "live");
+    if (live) setPhase("ready");
+    else startCamera();
+  };
+
+  const save = async () => {
+    if (!strip) return;
+    const file = new File([strip.blob], `photo-strip-${Date.now()}.png`, { type: "image/png" });
+    // On phones this opens the share sheet, where "Save Image" puts it in Photos.
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        return;
+      } catch (e) {
+        if (e?.name === "AbortError") return;
+      }
+    }
+    const a = document.createElement("a");
+    a.href = strip.url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>
-            To get started, edit the{" "}
-            <code className={styles.code}>page.js</code> file.
-          </h1>
+    <main className="app">
+      {(phase === "ready" || phase === "shooting" || phase === "loading") && (
+        <>
+          <div className="stage">
+            <video ref={videoRef} className="video" playsInline muted autoPlay />
+            <div className="top">
+              {Array.from({ length: SHOTS }).map((_, i) => (
+                <span key={i} className={`dot ${i < taken ? "on" : ""}`} />
+              ))}
+            </div>
+            {count && (
+              <div className="count" key={count}>
+                {count}
+              </div>
+            )}
+            {flashKey > 0 && <div className="flash go" key={flashKey} />}
+          </div>
+          <div className="bar">
+            <button className="shutter" onClick={shoot} disabled={phase !== "ready"} aria-label="Take photos" />
+          </div>
+        </>
+      )}
+
+      {phase === "result" && strip && (
+        <div className="result">
+          <div className="strip-wrap">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="strip" src={strip.url} alt="Your photo strip" />
+          </div>
+          <div className="actions">
+            <button className="btn" onClick={save}>Save</button>
+            <button className="btn ghost" onClick={retake}>Retake</button>
+          </div>
+        </div>
+      )}
+
+      {phase === "denied" && (
+        <div className="msg">
+          <h1>We need your camera 📷</h1>
           <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
+            The booth can&rsquo;t see you yet. On iPhone, open Settings, find this app (or Safari), tap Camera
+            and choose Allow. On Android, tap the lock icon next to the address, then Permissions, then Camera.
+            Then come back and try again.
           </p>
+          <button className="btn" onClick={startCamera}>Try again</button>
         </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      )}
+
+      {phase === "unsupported" && (
+        <div className="msg">
+          <h1>No camera found</h1>
+          <p>
+            This browser can&rsquo;t open a camera here. Make sure no other app is using it, and open the page in
+            Safari or Chrome over a secure (https) link.
+          </p>
+          <button className="btn" onClick={startCamera}>Try again</button>
         </div>
-      </main>
-    </div>
+      )}
+    </main>
   );
 }
