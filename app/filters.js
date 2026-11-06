@@ -49,6 +49,15 @@ export const FILTERS = [
     sat: 1.5, contrast: 1.15, bright: 1.05, posterize: 4, outline: 110,
   },
   {
+    id: "kusama",
+    name: "Dot Infinity",
+    icon: "🔴",
+    // Pumpkin-yellow and red color blocks covered in polka dots, in the spirit
+    // of Yayoi Kusama's dotted paintings (the pattern is original, not a copy).
+    css: "url(#posterize) sepia(1) saturate(3.2) hue-rotate(-12deg) contrast(1.15) brightness(1.05)",
+    sat: 1, contrast: 1.1, palette: true, dots: true,
+  },
+  {
     id: "bigeyes",
     name: "Big Eyes",
     icon: "👀",
@@ -59,6 +68,13 @@ export const FILTERS = [
 ];
 
 export const getFilter = (id) => FILTERS.find((f) => f.id === id) || FILTERS[0];
+
+const PALETTE = [
+  [24, 20, 20], // ink black
+  [214, 52, 34], // red
+  [248, 190, 30], // pumpkin yellow
+  [255, 241, 208], // cream
+];
 
 function stampText() {
   const d = new Date();
@@ -110,6 +126,13 @@ export function applyFilter(canvas, f) {
       g += n;
       b += n;
     }
+    if (f.palette) {
+      const l = 0.299 * r + 0.587 * g + 0.114 * b;
+      const c = l < 60 ? PALETTE[0] : l < 120 ? PALETTE[1] : l < 185 ? PALETTE[2] : PALETTE[3];
+      r = c[0];
+      g = c[1];
+      b = c[2];
+    }
     if (f.posterize) {
       const steps = f.posterize - 1;
       r = Math.round(clamp(r) / 255 * steps) / steps * 255;
@@ -157,6 +180,25 @@ export function applyFilter(canvas, f) {
   }
   ctx.putImageData(img, 0, 0);
 
+  if (f.dots) {
+    // A loose grid of dots in different sizes. Dark dots on light areas,
+    // cream dots on dark areas, so they always show.
+    const step = Math.round(w / 14);
+    for (let y = -step; y < h + step; y += step) {
+      for (let x = -step; x < w + step; x += step) {
+        const cx = x + ((y / step) % 2 ? step / 2 : 0) + (Math.random() - 0.5) * step * 0.18;
+        const cy = y + (Math.random() - 0.5) * step * 0.18;
+        const px = Math.min(w - 1, Math.max(0, Math.round(cx)));
+        const py = Math.min(h - 1, Math.max(0, Math.round(cy)));
+        const i = (py * w + px) * 4;
+        const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        ctx.fillStyle = lum > 120 ? "rgba(24,20,20,.92)" : "rgba(255,241,208,.92)";
+        ctx.beginPath();
+        ctx.arc(cx, cy, step * (0.12 + Math.random() * 0.2), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
   if (f.vignette) {
     const grad = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.hypot(w, h) / 2);
     grad.addColorStop(0, "rgba(0,0,0,0)");

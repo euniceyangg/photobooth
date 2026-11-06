@@ -233,6 +233,7 @@ export default function Home() {
             <video ref={videoRef} className="video" style={{ filter: filter.css }} playsInline muted autoPlay />
             {filter.bigEyes && eyesStatus === "ready" && <canvas ref={eyesCanvasRef} className="video eyes" />}
             {filter.bigEyes && eyesStatus === "loading" && <div className="loadnote">Loading eye magic…</div>}
+            {filter.dots && <div className="ov dots" />}
             {filter.vignette && <div className="ov vig" style={{ opacity: Math.min(1, filter.vignette * 1.6) }} />}
             {filter.grain && <div className="ov grain" style={{ opacity: Math.min(0.5, filter.grain * 4) }} />}
             {filter.leak && <div className="ov leak" />}
