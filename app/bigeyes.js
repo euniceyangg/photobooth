@@ -17,11 +17,8 @@ export function loadLandmarker() {
           runningMode: "VIDEO",
           numFaces: 4,
         });
-      try {
-        return await make("GPU");
-      } catch {
-        return await make("CPU");
-      }
+      // CPU is slower but works on every phone; the GPU mode can fail silently.
+      return await make("CPU");
     })().catch((e) => {
       landmarkerPromise = null;
       throw e;
@@ -87,5 +84,77 @@ export function drawBigEyes(canvas, video, eyes, zoom = 2.4) {
     ctx.lineWidth = Math.max(2, R * 0.06);
     ctx.strokeStyle = "rgba(20,12,10,.55)";
     ctx.stroke();
+  }
+}
+
+// ---------- apples out of your mouth ----------
+// Mouth landmarks: inner lips 13 (top) and 14 (bottom), corners 78 and 308.
+export function mouthsFromLandmarks(faces) {
+  return (faces || []).map((lm) => {
+    const width = Math.hypot(lm[78].x - lm[308].x, lm[78].y - lm[308].y);
+    const gap = Math.hypot(lm[13].x - lm[14].x, lm[13].y - lm[14].y);
+    return { x: (lm[13].x + lm[14].x) / 2, y: (lm[13].y + lm[14].y) / 2, width, open: gap / (width || 1) > 0.3 };
+  });
+}
+
+export function newApples() {
+  return { list: [], last: 0, carry: 0 };
+}
+
+const MAX_APPLES = 60;
+
+// Moves the apples and draws them on top of the canvas.
+// `mouths` are in the video's un-mirrored 0-1 coordinates.
+export function stepApples(state, canvas, mouths, now) {
+  const W = canvas.width;
+  const H = canvas.height;
+  if (!W || !H) return;
+  const dt = Math.min(0.05, state.last ? (now - state.last) / 1000 : 0.016);
+  state.last = now;
+
+  for (const m of mouths || []) {
+    if (!m.open) continue;
+    state.carry += dt * 9; // about 9 apples a second
+    while (state.carry >= 1) {
+      state.carry -= 1;
+      state.list.push({
+        x: (1 - m.x) * W + (Math.random() - 0.5) * m.width * W * 0.4,
+        y: m.y * H,
+        vx: (Math.random() - 0.5) * W * 0.45,
+        vy: H * (0.05 + Math.random() * 0.25),
+        rot: Math.random() * 6.28,
+        vr: (Math.random() - 0.5) * 8,
+        size: Math.max(W * 0.05, m.width * W * 0.85),
+      });
+      if (state.list.length > MAX_APPLES) state.list.shift();
+    }
+  }
+
+  const ctx = canvas.getContext("2d");
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const a of state.list) {
+    a.vy += H * 1.8 * dt;
+    a.x += a.vx * dt;
+    a.y += a.vy * dt;
+    a.rot += a.vr * dt;
+    const floor = H - a.size * 0.5;
+    if (a.y > floor) {
+      a.y = floor;
+      a.vy *= -0.45;
+      a.vx *= 0.85;
+      a.vr *= 0.8;
+      if (Math.abs(a.vy) < H * 0.08) a.vy = 0;
+    }
+    if (a.x < a.size * 0.5 || a.x > W - a.size * 0.5) {
+      a.x = Math.min(W - a.size * 0.5, Math.max(a.size * 0.5, a.x));
+      a.vx *= -0.6;
+    }
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate(a.rot);
+    ctx.font = `${Math.round(a.size)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.fillText("🍎", 0, 0);
+    ctx.restore();
   }
 }

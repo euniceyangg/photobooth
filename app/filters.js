@@ -74,6 +74,15 @@ export const FILTERS = [
     warp: true,
   },
   {
+    id: "apples",
+    name: "Apple Mouth",
+    icon: "🍎",
+    // Open your mouth and apples pour out (see bigeyes.js).
+    css: "none",
+    apples: true,
+    hint: "Open your mouth! 🍎",
+  },
+  {
     id: "bigeyes",
     name: "Big Eyes",
     icon: "👀",

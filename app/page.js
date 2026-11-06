@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FILTERS, getFilter, applyFilter, drawMosaic, drawThermal, drawWarp, stampText } from "./filters";
-import { loadLandmarker, eyesFromLandmarks, drawBigEyes } from "./bigeyes";
+import { loadLandmarker, eyesFromLandmarks, drawBigEyes, mouthsFromLandmarks, newApples, stepApples } from "./bigeyes";
 
 const SHOTS = 4;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -16,7 +16,7 @@ const FOOTER = 120;
 
 function grabFrame(video, filter, eyesCanvas) {
   // For Big Eyes the picture is already mirrored and processed on eyesCanvas.
-  const processed = filter.bigEyes && eyesCanvas && eyesCanvas.width > 0;
+  const processed = (filter.bigEyes || filter.apples) && eyesCanvas && eyesCanvas.width > 0;
   const src = processed ? eyesCanvas : video;
   const vw = processed ? eyesCanvas.width : video.videoWidth;
   const vh = processed ? eyesCanvas.height : video.videoHeight;
@@ -67,6 +67,8 @@ export default function Home() {
   const mosaicRef = useRef(null);
   const eyesCanvasRef = useRef(null);
   const eyesRef = useRef([]);
+  const mouthsRef = useRef([]);
+  const applesRef = useRef(newApples());
   const [eyesStatus, setEyesStatus] = useState("idle"); // idle | loading | ready | error
   const [phase, setPhase] = useState("loading"); // loading | ready | shooting | result | denied | unsupported
   const [count, setCount] = useState(null);
@@ -78,7 +80,7 @@ export default function Home() {
 
   // Big Eyes: load the face finder the first time that filter is picked.
   useEffect(() => {
-    if (!filter.bigEyes || eyesStatus !== "idle") return;
+    if (!(filter.bigEyes || filter.apples) || eyesStatus !== "idle") return;
     setEyesStatus("loading");
     loadLandmarker().then(
       () => setEyesStatus("ready"),
@@ -87,7 +89,7 @@ export default function Home() {
         setFilterId("none");
       }
     );
-  }, [filter.bigEyes, eyesStatus]);
+  }, [filter.bigEyes, filter.apples, eyesStatus]);
 
   // Draw the live dot picture while Dot Infinity is on.
   useEffect(() => {
@@ -136,7 +138,7 @@ export default function Home() {
 
   // Draw the live Big Eyes picture while that filter is on.
   useEffect(() => {
-    if (!filter.bigEyes || eyesStatus !== "ready" || (phase !== "ready" && phase !== "shooting")) return;
+    if (!(filter.bigEyes || filter.apples) || eyesStatus !== "ready" || (phase !== "ready" && phase !== "shooting")) return;
     let raf;
     let last = -1;
     let stopped = false;
@@ -151,9 +153,11 @@ export default function Home() {
             const lm = await loadLandmarker();
             const res = lm.detectForVideo(video, performance.now());
             eyesRef.current = eyesFromLandmarks(res.faceLandmarks);
+            mouthsRef.current = mouthsFromLandmarks(res.faceLandmarks);
           } catch {}
         }
-        drawBigEyes(canvas, video, eyesRef.current);
+        drawBigEyes(canvas, video, filter.bigEyes ? eyesRef.current : []);
+        if (filter.apples) stepApples(applesRef.current, canvas, mouthsRef.current, performance.now());
       }
       raf = requestAnimationFrame(tick);
     };
@@ -162,7 +166,7 @@ export default function Home() {
       stopped = true;
       cancelAnimationFrame(raf);
     };
-  }, [filter.bigEyes, eyesStatus, phase]);
+  }, [filter.bigEyes, filter.apples, eyesStatus, phase]);
 
   const startCamera = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -277,8 +281,9 @@ export default function Home() {
         <>
           <div className="stage">
             <video ref={videoRef} className="video" style={{ filter: filter.css }} playsInline muted autoPlay />
-            {filter.bigEyes && eyesStatus === "ready" && <canvas ref={eyesCanvasRef} className="video eyes" />}
-            {filter.bigEyes && eyesStatus === "loading" && <div className="loadnote">Loading eye magic…</div>}
+            {(filter.bigEyes || filter.apples) && eyesStatus === "ready" && <canvas ref={eyesCanvasRef} className="video eyes" />}
+            {(filter.bigEyes || filter.apples) && eyesStatus === "loading" && <div className="loadnote">Loading face magic…</div>}
+            {filter.hint && eyesStatus === "ready" && phase === "ready" && <div className="loadnote">{filter.hint}</div>}
             {(filter.mosaic || filter.thermal || filter.warp) && <canvas ref={mosaicRef} className="video eyes" />}
             {filter.vignette && <div className="ov vig" style={{ opacity: Math.min(1, filter.vignette * 1.6) }} />}
             {filter.grain && <div className="ov grain" style={{ opacity: Math.min(0.5, filter.grain * 4) }} />}
