@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FILTERS, getFilter, applyFilter, stampText } from "./filters";
 
 const SHOTS = 4;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -12,7 +13,7 @@ const BORDER = 48;
 const GAP = 32;
 const FOOTER = 120;
 
-function grabFrame(video) {
+function grabFrame(video, filter) {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   const target = CELL_W / CELL_H;
@@ -29,6 +30,8 @@ function grabFrame(video) {
   ctx.translate(CELL_W, 0);
   ctx.scale(-1, 1); // mirror to match the preview
   ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, CELL_W, CELL_H);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  applyFilter(c, filter);
   return c;
 }
 
@@ -60,6 +63,8 @@ export default function Home() {
   const [taken, setTaken] = useState(0);
   const [flashKey, setFlashKey] = useState(0);
   const [strip, setStrip] = useState(null); // { url, blob }
+  const [filterId, setFilterId] = useState("none");
+  const filter = getFilter(filterId);
 
   const startCamera = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -117,7 +122,7 @@ export default function Home() {
     for (let i = 0; i < SHOTS; i++) {
       setCount(null);
       setFlashKey((k) => k + 1);
-      frames.push(grabFrame(video));
+      frames.push(grabFrame(video, filter));
       setTaken(i + 1);
       if (i < SHOTS - 1) {
         await wait(1200);
@@ -164,7 +169,11 @@ export default function Home() {
       {(phase === "ready" || phase === "shooting" || phase === "loading") && (
         <>
           <div className="stage">
-            <video ref={videoRef} className="video" playsInline muted autoPlay />
+            <video ref={videoRef} className="video" style={{ filter: filter.css }} playsInline muted autoPlay />
+            {filter.vignette && <div className="ov vig" style={{ opacity: Math.min(1, filter.vignette * 1.6) }} />}
+            {filter.grain && <div className="ov grain" style={{ opacity: Math.min(0.5, filter.grain * 4) }} />}
+            {filter.leak && <div className="ov leak" />}
+            {filter.stamp && <div className="stamp">{stampText()}</div>}
             <div className="top">
               {Array.from({ length: SHOTS }).map((_, i) => (
                 <span key={i} className={`dot ${i < taken ? "on" : ""}`} />
@@ -176,6 +185,19 @@ export default function Home() {
               </div>
             )}
             {flashKey > 0 && <div className="flash go" key={flashKey} />}
+          </div>
+          <div className="filters">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                className={`chip ${f.id === filterId ? "on" : ""}`}
+                onClick={() => setFilterId(f.id)}
+                disabled={phase === "shooting"}
+              >
+                <span className="chip-icon">{f.icon}</span>
+                {f.name}
+              </button>
+            ))}
           </div>
           <div className="bar">
             <button className="shutter" onClick={shoot} disabled={phase !== "ready"} aria-label="Take photos" />
