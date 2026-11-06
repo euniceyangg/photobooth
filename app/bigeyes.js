@@ -262,3 +262,131 @@ export function drawClown(canvas, faces) {
     ctx.fill();
   }
 }
+
+// ---------- potato face ----------
+let potatoSrc = null;
+
+// Draws the mirrored video, bends the face (huge nose and cheeks, tiny eyes),
+// then tints it potato-brown and adds spots and a sprout.
+export function drawPotato(canvas, video, faces) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (!vw || !vh) return;
+  const W = 480;
+  const H = Math.round((W * vh) / vw);
+  if (canvas.width !== W) canvas.width = W;
+  if (canvas.height !== H) canvas.height = H;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  ctx.save();
+  ctx.translate(W, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, W, H);
+  ctx.restore();
+  if (!faces?.length) return;
+
+  const lenses = [];
+  const marks = [];
+  for (const lm of faces) {
+    const P = (i) => ({ x: (1 - lm[i].x) * W, y: lm[i].y * H });
+    const left = P(454);
+    const right = P(234);
+    const top = P(10);
+    const chin = P(152);
+    const faceW = Math.hypot(right.x - left.x, right.y - left.y);
+    const faceH = Math.hypot(chin.x - top.x, chin.y - top.y);
+    const add = (c, r, m) => lenses.push({ x: c.x, y: c.y, r: r * r, rr: r, m });
+    add(P(1), faceW * 0.26, 2.3); // nose
+    add(P(50), faceW * 0.22, 1.6); // cheeks
+    add(P(280), faceW * 0.22, 1.6);
+    for (const ids of [LEFT, RIGHT]) {
+      const pts = ids.map(P);
+      add({ x: pts.reduce((a, p) => a + p.x, 0) / 4, y: pts.reduce((a, p) => a + p.y, 0) / 4 }, faceW * 0.15, 0.5); // tiny eyes
+    }
+    marks.push({ cx: (left.x + right.x) / 2, cy: (top.y + chin.y) / 2, faceW, faceH, top });
+  }
+
+  const src = ctx.getImageData(0, 0, W, H);
+  const s = src.data;
+  const out = ctx.createImageData(W, H);
+  const o = out.data;
+  o.set(s);
+  // only the area around the lenses needs warping
+  let minX = W, minY = H, maxX = 0, maxY = 0;
+  for (const L of lenses) {
+    minX = Math.min(minX, L.x - L.rr);
+    maxX = Math.max(maxX, L.x + L.rr);
+    minY = Math.min(minY, L.y - L.rr);
+    maxY = Math.max(maxY, L.y + L.rr);
+  }
+  const x1 = Math.min(W, Math.ceil(maxX));
+  const y1 = Math.min(H, Math.ceil(maxY));
+  for (let y = Math.max(0, Math.floor(minY)); y < y1; y++) {
+    for (let x = Math.max(0, Math.floor(minX)); x < x1; x++) {
+      let sx = x;
+      let sy = y;
+      for (const L of lenses) {
+        const dx = sx - L.x;
+        const dy = sy - L.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < L.r) {
+          const t = 1 - d2 / L.r;
+          const k = 1 - (1 - 1 / L.m) * t * t;
+          sx = L.x + dx * k;
+          sy = L.y + dy * k;
+        }
+      }
+      sx = Math.min(W - 1.001, Math.max(0, sx));
+      sy = Math.min(H - 1.001, Math.max(0, sy));
+      const x0 = sx | 0;
+      const y0 = sy | 0;
+      const fx = sx - x0;
+      const fy = sy - y0;
+      const i00 = (y0 * W + x0) * 4;
+      const i10 = i00 + 4;
+      const i01 = i00 + W * 4;
+      const i11 = i01 + 4;
+      const j = (y * W + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        o[j + c] = s[i00 + c] * (1 - fx) * (1 - fy) + s[i10 + c] * fx * (1 - fy) + s[i01 + c] * (1 - fx) * fy + s[i11 + c] * fx * fy;
+      }
+      o[j + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+
+  // potato skin, spots and a sprout
+  for (const m of marks) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(m.cx, m.cy, m.faceW * 0.47, m.faceH * 0.55, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.globalCompositeOperation = "multiply";
+    ctx.fillStyle = "rgba(196,150,92,.75)";
+    ctx.fillRect(m.cx - m.faceW, m.cy - m.faceH, m.faceW * 2, m.faceH * 2);
+    ctx.globalCompositeOperation = "source-over";
+    const spots = [[-0.3, -0.25], [0.28, -0.3], [-0.38, 0.15], [0.4, 0.1], [-0.2, 0.42], [0.22, 0.45], [0.05, -0.42], [-0.05, 0.3]];
+    for (const [ox, oy] of spots) {
+      ctx.fillStyle = "rgba(92,60,32,.65)";
+      ctx.beginPath();
+      ctx.ellipse(m.cx + ox * m.faceW, m.cy + oy * m.faceH, m.faceW * 0.03, m.faceW * 0.022, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // sprout
+    const sx0 = m.top.x;
+    const sy0 = m.top.y + m.faceH * 0.02;
+    ctx.strokeStyle = "#4c8a2e";
+    ctx.lineWidth = Math.max(3, m.faceW * 0.03);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(sx0, sy0);
+    ctx.quadraticCurveTo(sx0 + m.faceW * 0.02, sy0 - m.faceW * 0.14, sx0 + m.faceW * 0.1, sy0 - m.faceW * 0.2);
+    ctx.stroke();
+    ctx.fillStyle = "#6cc04a";
+    for (const sg of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(sx0 + m.faceW * 0.1 + sg * m.faceW * 0.07, sy0 - m.faceW * 0.2, m.faceW * 0.08, m.faceW * 0.04, sg * -0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}

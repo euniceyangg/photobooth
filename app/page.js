@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FILTERS, getFilter, applyFilter, drawMosaic, drawThermal, drawWarp, stampText } from "./filters";
-import { loadLandmarker, eyesFromLandmarks, drawBigEyes, mouthsFromLandmarks, newApples, stepApples, drawClown } from "./bigeyes";
+import { loadLandmarker, eyesFromLandmarks, drawBigEyes, mouthsFromLandmarks, newApples, stepApples, drawClown, drawPotato } from "./bigeyes";
 
 const SHOTS = 4;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -16,7 +16,7 @@ const FOOTER = 120;
 
 function grabFrame(video, filter, eyesCanvas) {
   // For Big Eyes the picture is already mirrored and processed on eyesCanvas.
-  const processed = (filter.bigEyes || filter.apples || filter.clown) && eyesCanvas && eyesCanvas.width > 0;
+  const processed = (filter.bigEyes || filter.apples || filter.clown || filter.potato) && eyesCanvas && eyesCanvas.width > 0;
   const src = processed ? eyesCanvas : video;
   const vw = processed ? eyesCanvas.width : video.videoWidth;
   const vh = processed ? eyesCanvas.height : video.videoHeight;
@@ -78,7 +78,7 @@ export default function Home() {
   const [strip, setStrip] = useState(null); // { url, blob }
   const [filterId, setFilterId] = useState("none");
   const filter = getFilter(filterId);
-  const faceFx = !!(filter.bigEyes || filter.apples || filter.clown);
+  const faceFx = !!(filter.bigEyes || filter.apples || filter.clown || filter.potato);
 
   // Big Eyes: load the face finder the first time that filter is picked.
   useEffect(() => {
@@ -159,7 +159,8 @@ export default function Home() {
             facesRef.current = res.faceLandmarks;
           } catch {}
         }
-        drawBigEyes(canvas, video, filter.bigEyes ? eyesRef.current : []);
+        if (filter.potato) drawPotato(canvas, video, facesRef.current);
+        else drawBigEyes(canvas, video, filter.bigEyes ? eyesRef.current : []);
         if (filter.clown) drawClown(canvas, facesRef.current);
         if (filter.apples) stepApples(applesRef.current, canvas, mouthsRef.current, performance.now());
       }
@@ -170,7 +171,7 @@ export default function Home() {
       stopped = true;
       cancelAnimationFrame(raf);
     };
-  }, [faceFx, filter.bigEyes, filter.apples, filter.clown, eyesStatus, phase]);
+  }, [faceFx, filter.bigEyes, filter.apples, filter.clown, filter.potato, eyesStatus, phase]);
 
   const startCamera = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {

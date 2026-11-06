@@ -91,6 +91,14 @@ export const FILTERS = [
     clown: true,
   },
   {
+    id: "potato",
+    name: "Potato",
+    icon: "🥔",
+    // Huge nose and cheeks, tiny eyes, potato skin and a sprout (see bigeyes.js).
+    css: "none",
+    potato: true,
+  },
+  {
     id: "bigeyes",
     name: "Big Eyes",
     icon: "👀",
